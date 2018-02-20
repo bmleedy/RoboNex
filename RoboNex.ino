@@ -21,6 +21,7 @@
  *  Get some unit tests
  *  Create a data structure of ultrasonics so I can add them easily
  *  Factor out the velocity control logic from the beeper behavior from the velocity IO function.
+ *  Make cycle time deterministic
 */
 
 #include "NewTone.h"
@@ -32,38 +33,62 @@
 ////////DEFINITIONS//////////
 /////////////////////////////
 
+//Debugging flag handled at compile-time to reduce the compiled size of non=verbose code
+#define VERBOSE true
+
+////////////// Desired State //////////////
+
+struct {
+  int velocity = 0;        // mm/s
+                           // If set to zero, go forever.
+  bool beeper_on = false;  // true = on
+} desired;
+
+
+////////////// Current Mesured State //////////////
+struct {
+  // Ultrasonics
+  long front_range_cm = 0;  // measured range, cm
+  long rear_range_cm  = 0;  // measured range, cm
+  bool front_rangefinder_inhibit = false;
+  bool rear_rangefinder_inhibit = false;
+  // IR Receiver
+  decode_results results;   // IR receiver results 
+  // Velocity command
+  int command_velocity = 0; // mm/s
+  void dump()
+  {
+    Serial.print("front_range_cm: "); Serial.println(front_range_cm);
+    Serial.print("rear_range_cm:  "); Serial.println(rear_range_cm);
+    Serial.print("front_rangefinder_inhibit: "); Serial.println(front_rangefinder_inhibit);
+    Serial.print("rear_rangefinder_inhibit:  "); Serial.println(rear_rangefinder_inhibit);
+    Serial.print("results.value: 0x"); Serial.println(results.value, HEX);
+  };
+} measured;
+
 ////////////// Ultrasonics Definitions //////////////
 
 // Front Ultrasonic Receiver
-#define FRONT_TRIG_PIN 7
-#define FRONT_ECHO_PIN 6
-SR04 front_ultrasonic = SR04(FRONT_ECHO_PIN, FRONT_TRIG_PIN);
-long front_range_cm;                     // measured range, cm
+#define FRONT_TRIG_PIN 7  // from schematic
+#define FRONT_ECHO_PIN 6  // from schematic
+SR04 front_ultrasonic = SR04(FRONT_ECHO_PIN, FRONT_TRIG_PIN);                   
 
 // Rear Ultrasonic Receiver
 #define REAR_TRIG_PIN 5
 #define REAR_ECHO_PIN 4
 SR04 rear_ultrasonic = SR04(REAR_ECHO_PIN, REAR_TRIG_PIN);
-long rear_range_cm;                      // measured range, cm
 
 // One range for all ultrasonics
-#define RANGE_THRESHOLD 40               // stop if measured range is below this, cm
+#define ULTRASONIC_RANGE_THRESHOLD 40  // stop if measured range is below this, cm
 
 ////////////// Motor Control Definitions //////////////
-
-int go_duration = 0;           // Number of millisections to go when I press + or -.
-                               // If set to zero, go forever.
-int velocity_command = 0;      // Negative = backward; positive=forward
-
 #define MOTOR_POWER_PIN  10            // Green
 #define H_BRIDGE_PIN1    12            // Orange - Relay board IN1
 #define H_BRIDGE_PIN2    13            // Yellow - Relay board IN2
 
-
 ////////////// IR Receiver Control Definitions //////////////
 #define IR_RECEIVER_PIN 11     // Signal Pin of IR receiver to Arduino Digital Pin 11
 IRrecv irrecv(IR_RECEIVER_PIN);       // create instance of 'irrecv'
-decode_results results;        // create instance of 'decode_results'
 
 ////////////// Buzzer Definitions //////////////
 // Buzzer tones
@@ -75,9 +100,9 @@ decode_results results;        // create instance of 'decode_results'
 #define LA  440  // A
 #define SI  494  // B
 #define DO2 524  // C
+#define BUZZER_TONE RE //set this to your desired tone
 #define BUZZER_PIN 8 //Not necessarily a PWM pin, any digital pin will work!!! 
 #define TONE_WAIT  0 //Duration for tone to run.  Zero = Don't stop
-bool backup_beeper_on = false;
 
 /////////////////////////////
 //////// FUNCTIONS //////////
@@ -95,7 +120,11 @@ bool backup_beeper_on = false;
  */
 void set_desired_velocity(int newVel)
 {
-  velocity_command = newVel;
+  #if VERBOSE
+  Serial.print("RoboNex.set_desired_velocity :: Setting Desired Velocity from ");
+         Serial.print(desired.velocity); Serial.print(" to "); Serial.println(newVel);
+  #endif
+  desired.velocity = newVel;
 }
 
 /*
@@ -105,7 +134,10 @@ void set_desired_velocity(int newVel)
  */
 void set_backup_beep(bool setting)
 {
-  backup_beeper_on = setting;
+  #if VERBOSE
+  Serial.print("RoboNex.set_backup_beep :: Setting Backup Beep to "); Serial.println(setting);
+  #endif
+  desired.beeper_on = setting;
 }
 
 /*
@@ -114,11 +146,12 @@ void set_backup_beep(bool setting)
  *  Based on the beeper global variable state, apply the digital IO for the backup beeper.
  *  
  */
-void apply_backup_beep_io()
+void apply_backup_beep_io(bool beeper_on)
 {
- if(backup_beeper_on)
+  //todo: make this beep instead of a steady tone.  Implement beeping in this function.
+ if(beeper_on)
  {
-   NewTone(BUZZER_PIN, RE);  // Turn on backup beeper
+   NewTone(BUZZER_PIN, BUZZER_TONE);  // Turn on backup beeper
  }
  else
  {
@@ -134,9 +167,7 @@ void apply_backup_beep_io()
  */
 void stop()
 {
-  Serial.println("Stopping Motor");
-  digitalWrite(MOTOR_POWER_PIN, HIGH);           // Motor power off
-  set_backup_beep(false);            // Turn backup buzzer off when I stop
+  digitalWrite(MOTOR_POWER_PIN, HIGH);  // Motor power off
 }
 
 /*
@@ -146,7 +177,6 @@ void stop()
  */
 void go()
 {
-  Serial.println("starting Motor");
   digitalWrite(MOTOR_POWER_PIN, LOW);            //motor power on
 }
 
@@ -154,58 +184,31 @@ void go()
  *  goBack()
  *  
  *  Switch the motor H-bridge into backward direction and turn on the motor.
- *    If a duration is provided, run for a certain duration.
- *    
- *  If global variable go_duration is zero, go forever.
  */
 void goBack()
 {
   //set relays to forward mode
-  Serial.println("Setting relays to backward mode");
   digitalWrite(H_BRIDGE_PIN1, HIGH);   // Orange - Relay board IN1
   digitalWrite(H_BRIDGE_PIN2, HIGH);   // Yellow - Relay board IN2
 
-  Serial.println("Setting motor to Reverse.");
   go();   //motor power on
 
-  set_backup_beep(true);  // Turn on backup beeper
-
-   //Turn Power on for duration milliseconds
-  if(go_duration > 0)
-  {
-    delay(go_duration);      //wait for a certain amount of time
-    stop();
-  }
 }
 
 /* 
  *  goForward()
  *  
  *  Switch the motor H-bridge into forward direction and turn on the motor.
- *    If a duration is provided, run for a certain duration.
- *    
- *  If global variable go_duration is zero, go forever.
  */
 void goForward()
 {
   // Set relays to forward mode
-  Serial.println("Setting relays to forward mode");
   digitalWrite(H_BRIDGE_PIN1, LOW);   //sets digital pin 12 off
   digitalWrite(H_BRIDGE_PIN2, LOW);   //sets digital pin 13 off
 
   // Turn Power on for duration milliseconds
-  Serial.println("Turning on forward Motor");
   go();   //motor power on
 
-  // Turn off backup beeper
-  set_backup_beep(false);
-
-  // Run for only a certain duration if set
-  if(go_duration > 0)
-  {     
-    delay(go_duration);      //wait for a certain amount of time
-    stop();
-  }
 }
 
 /*
@@ -220,6 +223,7 @@ void goForward()
  */
 void set_velocity_io(int v_command)
 {
+  measured.command_velocity = v_command;
   if(v_command > 0)
   {
     goForward();
@@ -243,7 +247,7 @@ void set_velocity_io(int v_command)
  *   to the digital IO on the regular program cycle.
  *   
  */
-void translateIR() // takes action based on IR code received
+void translateIR(decode_results results) // takes action based on IR code received
 {
 
   switch(results.value)
@@ -267,34 +271,24 @@ void translateIR() // takes action based on IR code received
   case 0xFF9867: Serial.println("RETURN");    break;
   case 0xFFB04F: Serial.println("USB SCAN");    break;
   case 0xFF6897: Serial.println("0");
-                 go_duration = 0;
                  break;
   case 0xFF30CF: Serial.println("1");
-                 go_duration = 1000;
                  break;
   case 0xFF18E7: Serial.println("2");
-                 go_duration = 2000;
                  break;
   case 0xFF7A85: Serial.println("3");
-                 go_duration = 3000;
                  break;
   case 0xFF10EF: Serial.println("4");
-                 go_duration = 4000;
                  break;
   case 0xFF38C7: Serial.println("5");
-                 go_duration = 5000;
                  break;
   case 0xFF5AA5: Serial.println("6");
-                 go_duration = 6000;
                  break;
   case 0xFF42BD: Serial.println("7");
-                 go_duration = 7000;
                  break;
   case 0xFF4AB5: Serial.println("8");
-                 go_duration = 8000;
                  break;
   case 0xFF52AD: Serial.println("9");
-                 go_duration = 9000;
                  break;
   case 0xFFFFFFFF: Serial.println(" REPEAT");break;  
 
@@ -328,8 +322,6 @@ void setup() {
   // Make sure we are stopped
   stop();
 
-  // Wait a half-second to start
-  delay(500);
 }
 
 
@@ -339,50 +331,86 @@ void setup() {
 
 void loop() {
 
-  // Check for remote control Commands
-  if (irrecv.decode(&results)) // have we received an IR signal?
+  static int command_velocity = 0;  // mm/s
+  static unsigned long prev_time = 0;  //microseconds
+
+
+  // Check for remote control commands
+  if (irrecv.decode(&measured.results)) // have we received an IR signal?
   {
-    translateIR(); 
+    translateIR(measured.results); 
     irrecv.resume(); // receive the next value
   }  
 
-  // read the front ultrasonic
-  front_range_cm = front_ultrasonic.Distance();
-  Serial.print("Front range: ");
-  Serial.print(front_range_cm);
-  Serial.println("cm");
-
+  // Read the front ultrasonic sensor
+  // todo: look into replacing with non-blocking calls.
+  measured.front_range_cm = front_ultrasonic.Distance();
+  
   // read the rear ultrasonic
-  rear_range_cm=rear_ultrasonic.Distance();
-  Serial.print("Rear range: ");
-  Serial.print(rear_range_cm);
-  Serial.println("cm");
+  measured.rear_range_cm=rear_ultrasonic.Distance();
 
+  // Start with desired velocity, prior to sensor limits
+  command_velocity = desired.velocity;
 
-  // Apply the desired backup beeper state
-  apply_backup_beep_io();
-
-  // Apply speeds, using ultrasonics to stop
-  if( (front_range_cm < RANGE_THRESHOLD) &&
-      (velocity_command > 0))
+  // Limit Forward Velocity based on front ultrasonic
+  if( (measured.front_range_cm < ULTRASONIC_RANGE_THRESHOLD) &&
+      (command_velocity > 0))
   {
-    Serial.println("forward stopped due to ultrasonics");
-    set_velocity_io(0);
-  }
-  else if( (rear_range_cm < RANGE_THRESHOLD) &&
-           (velocity_command < 0))
-  {
-    Serial.println("reverse stopped due to ultrasonics");
-    set_velocity_io(0);
+    command_velocity = 0;
+    measured.front_rangefinder_inhibit = true;
   }
   else
   {
-    set_velocity_io(velocity_command);
+    measured.front_rangefinder_inhibit = false;
+  }
+  
+  // Limit reverse velocity based on rear ultrasonic
+  if( (measured.rear_range_cm < ULTRASONIC_RANGE_THRESHOLD) &&
+           (command_velocity < 0))
+  {
+    command_velocity = 0;
+    measured.rear_rangefinder_inhibit = true;
+  }
+  else
+  {
+    measured.rear_rangefinder_inhibit = false;
   }
 
-  //Not adding a delay here, but todo: make rate consistent.
-  delay(1000);
-  
+  // Finally, apply command velocity
+  set_velocity_io(command_velocity);
+
+  // Decide whether the backup beep state needs to changed
+  if( (command_velocity >= 0) &&
+      desired.beeper_on )
+  {
+    set_backup_beep(false);
+  }
+  else if( (command_velocity < 0) &&
+           !desired.beeper_on )
+  {
+    set_backup_beep(true);
+  }
+
+  // Apply the desired backup beeper state (after evaluating our command velocity)
+  apply_backup_beep_io(desired.beeper_on);
+
+  //Not adding a delay here, but todo: make rate consistent (and measure rate)
+
+  //todo: use measured values to blink our built-in indicator light.
+  //  am I inhibited by front rangefinder?
+  //  am I inhibited by rear rangefinder?
+
+  // Dump measured values at end of the program cycle
+  #if VERBOSE
+  Serial.println("----------------------------------------");
+  measured.dump();
+  //todo: Add measurement of cycle duration here
+  Serial.println("----------------------------------------");
+  unsigned long delta_time = micros() - prev_time;
+  prev_time = micros();
+  Serial.print("Cycle Duration (micros) : "); Serial.println(delta_time);
+  #endif
+
 }
 
 
