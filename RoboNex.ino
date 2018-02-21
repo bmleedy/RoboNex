@@ -11,16 +11,13 @@
  *  Add a rubber band launcher: http://www.instructables.com/id/Rubber-Band-Gun-Using-an-Arduino/
  *  Unify the desired state into one context data structure
  *  Unify the sensor inputs into one status data structure
- *  Allow dumping of the contexts for debugging
  *  Add police Lights / reverse lights for the bus
  *  Allow control of lights from the remote
  *  Add control via wifi / webpage (maybe using raspberry pi?)
  *  Make wiring more solid (create a whitewire board for relays and power supply)
- *  Put this code up on GitHub ASAP!!!
  *  Get some unit tests
  *  Create a data structure of ultrasonics so I can add them easily
  *  Factor out the velocity control logic from the beeper behavior from the velocity IO function.
- *  Make cycle time deterministic
 */
 
 #include "NewTone.h"
@@ -33,9 +30,11 @@
 /////////////////////////////
 
 //Debugging flag handled at compile-time to reduce the compiled size of non=verbose code
-#define VERBOSE true
+#define VERBOSE false
 
-#define BEEP_LENGTH_MILLIS 1500
+#define BEEP_LENGTH_MILLIS 500
+
+#define DESIRED_LOOP_DURATION 500
 
 ////////////// Desired State //////////////
 
@@ -43,6 +42,11 @@ struct {
   int velocity = 0;        // mm/s
                            // If set to zero, go forever.
   bool beeper_on = false;  // true = on
+  void dump()
+  {
+    Serial.print("velocity:  "); Serial.println(velocity);
+    Serial.print("beeper_on: "); Serial.println(beeper_on);
+  }
 } desired;
 
 
@@ -59,11 +63,11 @@ struct {
   int command_velocity = 0; // mm/s
   void dump()
   {
-    Serial.print("front_range_cm: "); Serial.println(front_range_cm);
-    Serial.print("rear_range_cm:  "); Serial.println(rear_range_cm);
+    Serial.print("front_range_cm:            "); Serial.println(front_range_cm);
+    Serial.print("rear_range_cm:             "); Serial.println(rear_range_cm);
     Serial.print("front_rangefinder_inhibit: "); Serial.println(front_rangefinder_inhibit);
     Serial.print("rear_rangefinder_inhibit:  "); Serial.println(rear_rangefinder_inhibit);
-    Serial.print("results.value: 0x"); Serial.println(results.value, HEX);
+    Serial.print("results.value:           0x"); Serial.println(results.value, HEX);
   };
 } measured;
 
@@ -150,24 +154,24 @@ void set_backup_beep(bool setting)
 void apply_backup_beep_io(bool beeper_on)
 {
   static int last_xition_millis = 0;
-  static int beep_on = true;
+  static bool beep_on = true;
 
   // Every n Milliseconds, switch the state of the beeper
   if( (millis() - last_xition_millis) > BEEP_LENGTH_MILLIS )
   {
-    beep_on != beep_on;
+    if(beep_on)
+      beep_on=false; 
+    else
+      beep_on=true;
+
     last_xition_millis = millis();
   }
  
   // Apply the correct IO
   if(beeper_on && beep_on)
-  {
     NewTone(BUZZER_PIN, BUZZER_TONE);  // Turn on backup beeper
-  }
   else
-  {
     noNewTone(BUZZER_PIN);    // Turn off backup beeper
-  }
 }
 
 /*
@@ -236,17 +240,11 @@ void set_velocity_io(int v_command)
 {
   measured.command_velocity = v_command;
   if(v_command > 0)
-  {
     goForward();
-  } 
   else if (v_command < 0)
-  {
     goBack();
-  }
   else
-  {
     stop();
-  }
 }
 
 /*
@@ -324,7 +322,6 @@ void setup() {
   pinMode(MOTOR_POWER_PIN, OUTPUT);          // sets the digital pin 11 as output
 
   // Enable IR Remote Control Input
-  Serial.println("IR Receiver Button Decode"); 
   irrecv.enableIRIn(); // Start the receiver
 
   // Setup the buzzer pin
@@ -332,6 +329,8 @@ void setup() {
 
   // Make sure we are stopped
   stop();
+
+  Serial.println("Setup Complete.");
 
 }
 
@@ -341,6 +340,7 @@ void setup() {
 /////////////////////////////
 
 void loop() {
+  unsigned long loop_start_millis = millis();
 
   static int command_velocity = 0;  // mm/s
   static unsigned long prev_time = 0;  //microseconds
@@ -356,7 +356,7 @@ void loop() {
   // Read the front ultrasonic sensor
   // todo: look into replacing with non-blocking calls.
   measured.front_range_cm = front_ultrasonic.Distance();
-  
+
   // read the rear ultrasonic
   measured.rear_range_cm=rear_ultrasonic.Distance();
 
@@ -391,16 +391,10 @@ void loop() {
   set_velocity_io(command_velocity);
 
   // Decide whether the backup beep state needs to changed
-  if( (command_velocity >= 0) &&
-      desired.beeper_on )
-  {
+  if( (command_velocity >= 0) && desired.beeper_on )
     set_backup_beep(false);
-  }
-  else if( (command_velocity < 0) &&
-           !desired.beeper_on )
-  {
+  else if( (command_velocity < 0) && !desired.beeper_on )
     set_backup_beep(true);
-  }
 
   // Apply the desired backup beeper state (after evaluating our command velocity)
   apply_backup_beep_io(desired.beeper_on);
@@ -415,13 +409,25 @@ void loop() {
   #if VERBOSE
   Serial.println("----------------------------------------");
   measured.dump();
-  //todo: Add measurement of cycle duration here
   Serial.println("----------------------------------------");
   unsigned long delta_time = micros() - prev_time;
   prev_time = micros();
   Serial.print("Cycle Duration (micros) : "); Serial.println(delta_time);
   #endif
 
+  // Loop Timing
+  unsigned long loop_duration = millis() - loop_start_millis;
+  int loop_wait = DESIRED_LOOP_DURATION - loop_duration;
+  if(loop_wait >= 0)
+  {
+    delay(loop_wait);
+    unsigned int utilization = 100 - ((loop_wait * 100) / DESIRED_LOOP_DURATION);
+    Serial.print("% Utilization: "); Serial.println(utilization);
+  }
+  else
+  {
+    Serial.println("WARNING: LOOP DURATION EXCEEDED!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+  }
 }
 
 
