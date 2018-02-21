@@ -8,7 +8,6 @@
  * IDEAS: 
  *  Use the onboard LED to blink when we're stopped due to the ultrasonics
  *  Add steering
- *  Beep the backup beeper
  *  Add a rubber band launcher: http://www.instructables.com/id/Rubber-Band-Gun-Using-an-Arduino/
  *  Unify the desired state into one context data structure
  *  Unify the sensor inputs into one status data structure
@@ -35,6 +34,8 @@
 
 //Debugging flag handled at compile-time to reduce the compiled size of non=verbose code
 #define VERBOSE true
+
+#define BEEP_LENGTH_MILLIS 1500
 
 ////////////// Desired State //////////////
 
@@ -148,15 +149,25 @@ void set_backup_beep(bool setting)
  */
 void apply_backup_beep_io(bool beeper_on)
 {
-  //todo: make this beep instead of a steady tone.  Implement beeping in this function.
- if(beeper_on)
- {
-   NewTone(BUZZER_PIN, BUZZER_TONE);  // Turn on backup beeper
- }
- else
- {
-   noNewTone(BUZZER_PIN);    // Turn off backup beeper
- }
+  static int last_xition_millis = 0;
+  static int beep_on = true;
+
+  // Every n Milliseconds, switch the state of the beeper
+  if( (millis() - last_xition_millis) > BEEP_LENGTH_MILLIS )
+  {
+    beep_on != beep_on;
+    last_xition_millis = millis();
+  }
+ 
+  // Apply the correct IO
+  if(beeper_on && beep_on)
+  {
+    NewTone(BUZZER_PIN, BUZZER_TONE);  // Turn on backup beeper
+  }
+  else
+  {
+    noNewTone(BUZZER_PIN);    // Turn off backup beeper
+  }
 }
 
 /*
