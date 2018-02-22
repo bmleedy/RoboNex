@@ -6,18 +6,14 @@
  * https://www.arduino.cc/reference/en/
  * 
  * IDEAS: 
- *  Use the onboard LED to blink when we're stopped due to the ultrasonics
+ *  Remove absurd amount of wait time in SR04 reading - Fire and check multiple ultrasonics simultaneously?
  *  Add steering
  *  Add a rubber band launcher: http://www.instructables.com/id/Rubber-Band-Gun-Using-an-Arduino/
- *  Unify the desired state into one context data structure
- *  Unify the sensor inputs into one status data structure
  *  Add police Lights / reverse lights for the bus
  *  Allow control of lights from the remote
  *  Add control via wifi / webpage (maybe using raspberry pi?)
  *  Make wiring more solid (create a whitewire board for relays and power supply)
  *  Get some unit tests
- *  Create a data structure of ultrasonics so I can add them easily
- *  Factor out the velocity control logic from the beeper behavior from the velocity IO function.
 */
 
 #include "NewTone.h"
@@ -330,6 +326,9 @@ void setup() {
   // Make sure we are stopped
   stop();
 
+  // Init built-in LED
+  pinMode(LED_BUILTIN, OUTPUT);
+
   Serial.println("Setup Complete.");
 
 }
@@ -359,6 +358,7 @@ void loop() {
 
   // read the rear ultrasonic
   measured.rear_range_cm=rear_ultrasonic.Distance();
+
 
   // Start with desired velocity, prior to sensor limits
   command_velocity = desired.velocity;
@@ -399,11 +399,11 @@ void loop() {
   // Apply the desired backup beeper state (after evaluating our command velocity)
   apply_backup_beep_io(desired.beeper_on);
 
-  //Not adding a delay here, but todo: make rate consistent (and measure rate)
-
-  //todo: use measured values to blink our built-in indicator light.
-  //  am I inhibited by front rangefinder?
-  //  am I inhibited by rear rangefinder?
+  // Indicate whether I'm being blocked by the US with the builtin LED
+  if(measured.rear_rangefinder_inhibit || measured.front_rangefinder_inhibit)
+    digitalWrite(LED_BUILTIN, HIGH);  // LED on
+  else
+    digitalWrite(LED_BUILTIN, LOW);   // LED off
 
   // Dump measured values at end of the program cycle
   #if VERBOSE
