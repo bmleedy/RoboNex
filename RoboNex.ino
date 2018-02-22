@@ -6,7 +6,6 @@
  * https://www.arduino.cc/reference/en/
  * 
  * IDEAS: 
- *  Remove absurd amount of wait time in SR04 reading - Fire and check multiple ultrasonics simultaneously?
  *  Add steering
  *  Add a rubber band launcher: http://www.instructables.com/id/Rubber-Band-Gun-Using-an-Arduino/
  *  Add police Lights / reverse lights for the bus
