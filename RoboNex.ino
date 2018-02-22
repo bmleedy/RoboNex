@@ -18,7 +18,7 @@
 
 #include "NewTone.h"
 #include "IRremote.h"
-#include "SR04.h"
+#include "SR04plus.h"
 
 
 /////////////////////////////
@@ -27,10 +27,9 @@
 
 //Debugging flag handled at compile-time to reduce the compiled size of non=verbose code
 #define VERBOSE false
-
-#define BEEP_LENGTH_MILLIS 500
-
-#define DESIRED_LOOP_DURATION 500
+#define BEEP_LENGTH_MILLIS 500            //ms
+#define DESIRED_LOOP_DURATION 50          //ms
+#define ULTRASONIC_TIME_BUDGET_MILLIS 40  //ms
 
 ////////////// Desired State //////////////
 
@@ -59,11 +58,11 @@ struct {
   int command_velocity = 0; // mm/s
   void dump()
   {
-    Serial.print("front_range_cm:            "); Serial.println(front_range_cm);
-    Serial.print("rear_range_cm:             "); Serial.println(rear_range_cm);
-    Serial.print("front_rangefinder_inhibit: "); Serial.println(front_rangefinder_inhibit);
-    Serial.print("rear_rangefinder_inhibit:  "); Serial.println(rear_rangefinder_inhibit);
-    Serial.print("results.value:           0x"); Serial.println(results.value, HEX);
+    Serial.print("front_range_cm: "); Serial.println(front_range_cm);
+    Serial.print("rear_range_cm:  "); Serial.println(rear_range_cm);
+    Serial.print("front_us_inhib: "); Serial.println(front_rangefinder_inhibit);
+    Serial.print("rear_us_inhib:  "); Serial.println(rear_rangefinder_inhibit);
+    Serial.print("results.value:0x"); Serial.println(results.value, HEX);
   };
 } measured;
 
@@ -352,14 +351,19 @@ void loop() {
     irrecv.resume(); // receive the next value
   }  
 
-  // Read the front ultrasonic sensor
-  // todo: look into replacing with non-blocking calls.
+  unsigned long ultrasonic_start_tick = millis();
+  // Read the front ultrasonic sensor 
   measured.front_range_cm = front_ultrasonic.Distance();
-
-  // read the rear ultrasonic
+  // read the rear ultrasonic sensor
   measured.rear_range_cm=rear_ultrasonic.Distance();
-
-
+  //extend ultrasonic read to 40ms for a consistent cycle time
+  int ultrasonic_duration = millis() - ultrasonic_start_tick;
+  int ultrasonic_delay = ULTRASONIC_TIME_BUDGET_MILLIS - ultrasonic_duration;
+  if((ultrasonic_delay > 0) && (ultrasonic_delay < ULTRASONIC_TIME_BUDGET_MILLIS) )
+    delay(ultrasonic_delay);
+  else
+    Serial.println("millifail");
+    
   // Start with desired velocity, prior to sensor limits
   command_velocity = desired.velocity;
 
@@ -407,9 +411,8 @@ void loop() {
 
   // Dump measured values at end of the program cycle
   #if VERBOSE
-  Serial.println("----------------------------------------");
+  Serial.println("-----------");
   measured.dump();
-  Serial.println("----------------------------------------");
   unsigned long delta_time = micros() - prev_time;
   prev_time = micros();
   Serial.print("Cycle Duration (micros) : "); Serial.println(delta_time);
@@ -422,7 +425,7 @@ void loop() {
   {
     delay(loop_wait);
     unsigned int utilization = 100 - ((loop_wait * 100) / DESIRED_LOOP_DURATION);
-    Serial.print("% Utilization: "); Serial.println(utilization);
+    Serial.print(utilization); Serial.println("%");
   }
   else
   {
