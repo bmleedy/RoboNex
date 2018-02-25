@@ -26,7 +26,7 @@
 /////////////////////////////
 
 //Debugging flag handled at compile-time to reduce the compiled size of non=verbose code
-#define VERBOSE true
+#define VERBOSE false
 
 #define BEEP_LENGTH_MILLIS 500
 
@@ -201,7 +201,6 @@ void goBack()
   //set relays to forward mode
   digitalWrite(H_BRIDGE_PIN1, HIGH);   // Orange - Relay board IN1
   digitalWrite(H_BRIDGE_PIN2, HIGH);   // Yellow - Relay board IN2
-  Serial.println("goback+++++++++++++++++++++++++++");
   go();   //motor power on
 
 }
@@ -216,7 +215,6 @@ void goForward()
   // Set relays to forward mode
   digitalWrite(H_BRIDGE_PIN1, LOW);   //sets digital pin 12 off
   digitalWrite(H_BRIDGE_PIN2, LOW);   //sets digital pin 13 off
-  Serial.println("goforward------------------------");
   // Turn Power on for duration milliseconds
   go();   //motor power on
 
