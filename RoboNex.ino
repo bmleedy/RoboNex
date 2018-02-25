@@ -6,6 +6,7 @@
  * https://www.arduino.cc/reference/en/
  * 
  * IDEAS: 
+ *  Remove absurd amount of wait time in SR04 reading - Fire and check multiple ultrasonics simultaneously?
  *  Add steering
  *  Add a rubber band launcher: http://www.instructables.com/id/Rubber-Band-Gun-Using-an-Arduino/
  *  Add police Lights / reverse lights for the bus
@@ -17,7 +18,7 @@
 
 #include "NewTone.h"
 #include "IRremote.h"
-#include "SR04plus.h"
+#include "SR04.h"
 
 
 /////////////////////////////
@@ -25,10 +26,11 @@
 /////////////////////////////
 
 //Debugging flag handled at compile-time to reduce the compiled size of non=verbose code
-#define VERBOSE false
-#define BEEP_LENGTH_MILLIS 500            //ms
-#define DESIRED_LOOP_DURATION 50          //ms
-#define ULTRASONIC_TIME_BUDGET_MILLIS 40  //ms
+#define VERBOSE true
+
+#define BEEP_LENGTH_MILLIS 500
+
+#define DESIRED_LOOP_DURATION 500
 
 ////////////// Desired State //////////////
 
@@ -57,11 +59,11 @@ struct {
   int command_velocity = 0; // mm/s
   void dump()
   {
-    Serial.print("front_range_cm: "); Serial.println(front_range_cm);
-    Serial.print("rear_range_cm:  "); Serial.println(rear_range_cm);
-    Serial.print("front_us_inhib: "); Serial.println(front_rangefinder_inhibit);
-    Serial.print("rear_us_inhib:  "); Serial.println(rear_rangefinder_inhibit);
-    Serial.print("results.value:0x"); Serial.println(results.value, HEX);
+    Serial.print("front_range_cm:            "); Serial.println(front_range_cm);
+    Serial.print("rear_range_cm:             "); Serial.println(rear_range_cm);
+    Serial.print("front_rangefinder_inhibit: "); Serial.println(front_rangefinder_inhibit);
+    Serial.print("rear_rangefinder_inhibit:  "); Serial.println(rear_rangefinder_inhibit);
+    Serial.print("results.value:           0x"); Serial.println(results.value, HEX);
   };
 } measured;
 
@@ -82,11 +84,11 @@ SR04 rear_ultrasonic = SR04(REAR_ECHO_PIN, REAR_TRIG_PIN);
 
 ////////////// Motor Control Definitions //////////////
 #define MOTOR_POWER_PIN  10            // Green
-#define H_BRIDGE_PIN1    12            // Orange - Relay board IN1
-#define H_BRIDGE_PIN2    13            // Yellow - Relay board IN2
+#define H_BRIDGE_PIN1    12            // Yellow - Relay board IN1
+#define H_BRIDGE_PIN2    11            // Orange - Relay board IN2
 
 ////////////// IR Receiver Control Definitions //////////////
-#define IR_RECEIVER_PIN 11     // Signal Pin of IR receiver to Arduino Digital Pin 11
+#define IR_RECEIVER_PIN  3     // Signal Pin of IR receiver to Arduino Digital Pin 11
 IRrecv irrecv(IR_RECEIVER_PIN);       // create instance of 'irrecv'
 
 ////////////// Buzzer Definitions //////////////
@@ -199,7 +201,7 @@ void goBack()
   //set relays to forward mode
   digitalWrite(H_BRIDGE_PIN1, HIGH);   // Orange - Relay board IN1
   digitalWrite(H_BRIDGE_PIN2, HIGH);   // Yellow - Relay board IN2
-
+  Serial.println("goback+++++++++++++++++++++++++++");
   go();   //motor power on
 
 }
@@ -214,7 +216,7 @@ void goForward()
   // Set relays to forward mode
   digitalWrite(H_BRIDGE_PIN1, LOW);   //sets digital pin 12 off
   digitalWrite(H_BRIDGE_PIN2, LOW);   //sets digital pin 13 off
-
+  Serial.println("goforward------------------------");
   // Turn Power on for duration milliseconds
   go();   //motor power on
 
@@ -311,9 +313,9 @@ void setup() {
   Serial.begin(9600);
 
   // Put your setup code here, to run once:
-  pinMode(H_BRIDGE_PIN1, OUTPUT);          // sets the digital pin 13 as output
-  pinMode(H_BRIDGE_PIN2, OUTPUT);          // sets the digital pin 12 as output
-  pinMode(MOTOR_POWER_PIN, OUTPUT);          // sets the digital pin 11 as output
+  pinMode(H_BRIDGE_PIN1, OUTPUT);          // sets the digital pin 12 as output
+  pinMode(H_BRIDGE_PIN2, OUTPUT);          // sets the digital pin 13 as output
+  pinMode(MOTOR_POWER_PIN, OUTPUT);        // sets the digital pin 10 as output
 
   // Enable IR Remote Control Input
   irrecv.enableIRIn(); // Start the receiver
@@ -350,19 +352,14 @@ void loop() {
     irrecv.resume(); // receive the next value
   }  
 
-  unsigned long ultrasonic_start_tick = millis();
-  // Read the front ultrasonic sensor 
+  // Read the front ultrasonic sensor
+  // todo: look into replacing with non-blocking calls.
   measured.front_range_cm = front_ultrasonic.Distance();
-  // read the rear ultrasonic sensor
+
+  // read the rear ultrasonic
   measured.rear_range_cm=rear_ultrasonic.Distance();
-  //extend ultrasonic read to 40ms for a consistent cycle time
-  int ultrasonic_duration = millis() - ultrasonic_start_tick;
-  int ultrasonic_delay = ULTRASONIC_TIME_BUDGET_MILLIS - ultrasonic_duration;
-  if((ultrasonic_delay > 0) && (ultrasonic_delay < ULTRASONIC_TIME_BUDGET_MILLIS) )
-    delay(ultrasonic_delay);
-  else
-    Serial.println("millifail");
-    
+
+
   // Start with desired velocity, prior to sensor limits
   command_velocity = desired.velocity;
 
@@ -410,8 +407,9 @@ void loop() {
 
   // Dump measured values at end of the program cycle
   #if VERBOSE
-  Serial.println("-----------");
+  Serial.println("----------------------------------------");
   measured.dump();
+  Serial.println("----------------------------------------");
   unsigned long delta_time = micros() - prev_time;
   prev_time = micros();
   Serial.print("Cycle Duration (micros) : "); Serial.println(delta_time);
@@ -424,7 +422,7 @@ void loop() {
   {
     delay(loop_wait);
     unsigned int utilization = 100 - ((loop_wait * 100) / DESIRED_LOOP_DURATION);
-    Serial.print(utilization); Serial.println("%");
+    Serial.print("% Utilization: "); Serial.println(utilization);
   }
   else
   {
