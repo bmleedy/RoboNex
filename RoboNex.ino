@@ -88,7 +88,7 @@ SR04 rear_ultrasonic = SR04(REAR_ECHO_PIN, REAR_TRIG_PIN);
 #define H_BRIDGE_PIN2    11            // Orange - Relay board IN2
 
 ////////////// IR Receiver Control Definitions //////////////
-#define IR_RECEIVER_PIN  3     // Signal Pin of IR receiver to Arduino Digital Pin 11
+#define IR_RECEIVER_PIN  2     // Signal Pin of IR receiver to Arduino Digital Pin 11
 IRrecv irrecv(IR_RECEIVER_PIN);       // create instance of 'irrecv'
 
 ////////////// Buzzer Definitions //////////////
