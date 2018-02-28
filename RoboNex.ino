@@ -6,7 +6,8 @@
  * https://www.arduino.cc/reference/en/
  * 
  * IDEAS: 
- *  Remove absurd amount of wait time in SR04 reading - Fire and check multiple ultrasonics simultaneously?
+ *  Remove absurd amount of wait time in SR04 reading - Fire and check multiple ultrasonics simultaneously? Set timeout to much lower value
+ *  34.3 cm/ms speed of sound @ maximum range of 1m * 2 trips = 200/34.3 = 5.83 ms maximum wait time (call it 6ms)
  *  Add steering
  *  Add a rubber band launcher: http://www.instructables.com/id/Rubber-Band-Gun-Using-an-Arduino/
  *  Add police Lights / reverse lights for the bus
@@ -14,6 +15,8 @@
  *  Add control via wifi / webpage (maybe using raspberry pi?)
  *  Make wiring more solid (create a whitewire board for relays and power supply)
  *  Get some unit tests
+ *  
+ *  Expected time for pings to run: 
 */
 
 #include "NewTone.h"
@@ -30,7 +33,7 @@
 
 #define BEEP_LENGTH_MILLIS 500
 
-#define DESIRED_LOOP_DURATION 500
+#define DESIRED_LOOP_DURATION 500 //todo: this loop duration should be less than 100 ms
 
 ////////////// Desired State //////////////
 
