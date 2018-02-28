@@ -87,11 +87,11 @@ SR04 rear_ultrasonic = SR04(REAR_ECHO_PIN, REAR_TRIG_PIN);
 
 ////////////// Motor Control Definitions //////////////
 #define MOTOR_POWER_PIN  10            // Green
-#define H_BRIDGE_PIN1    12            // Orange - Relay board IN1
-#define H_BRIDGE_PIN2    13            // Yellow - Relay board IN2
+#define H_BRIDGE_PIN1    12            // Yellow - Relay board IN1
+#define H_BRIDGE_PIN2    11            // Orange - Relay board IN2
 
 ////////////// IR Receiver Control Definitions //////////////
-#define IR_RECEIVER_PIN 11     // Signal Pin of IR receiver to Arduino Digital Pin 11
+#define IR_RECEIVER_PIN  2     // Signal Pin of IR receiver to Arduino Digital Pin 11
 IRrecv irrecv(IR_RECEIVER_PIN);       // create instance of 'irrecv'
 
 ////////////// Buzzer Definitions //////////////
@@ -204,7 +204,6 @@ void goBack()
   //set relays to forward mode
   digitalWrite(H_BRIDGE_PIN1, HIGH);   // Orange - Relay board IN1
   digitalWrite(H_BRIDGE_PIN2, HIGH);   // Yellow - Relay board IN2
-
   go();   //motor power on
 
 }
@@ -219,7 +218,6 @@ void goForward()
   // Set relays to forward mode
   digitalWrite(H_BRIDGE_PIN1, LOW);   //sets digital pin 12 off
   digitalWrite(H_BRIDGE_PIN2, LOW);   //sets digital pin 13 off
-
   // Turn Power on for duration milliseconds
   go();   //motor power on
 
@@ -316,9 +314,9 @@ void setup() {
   Serial.begin(9600);
 
   // Put your setup code here, to run once:
-  pinMode(H_BRIDGE_PIN1, OUTPUT);          // sets the digital pin 13 as output
-  pinMode(H_BRIDGE_PIN2, OUTPUT);          // sets the digital pin 12 as output
-  pinMode(MOTOR_POWER_PIN, OUTPUT);          // sets the digital pin 11 as output
+  pinMode(H_BRIDGE_PIN1, OUTPUT);          // sets the digital pin 12 as output
+  pinMode(H_BRIDGE_PIN2, OUTPUT);          // sets the digital pin 13 as output
+  pinMode(MOTOR_POWER_PIN, OUTPUT);        // sets the digital pin 10 as output
 
   // Enable IR Remote Control Input
   irrecv.enableIRIn(); // Start the receiver
