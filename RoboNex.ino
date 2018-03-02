@@ -6,22 +6,21 @@
  * https://www.arduino.cc/reference/en/
  * 
  * IDEAS: 
- *  Remove absurd amount of wait time in SR04 reading - Fire and check multiple ultrasonics simultaneously? Set timeout to much lower value
- *  34.3 cm/ms speed of sound @ maximum range of 1m * 2 trips = 200/34.3 = 5.83 ms maximum wait time (call it 6ms)
- *  Add steering
+ *  Add monitoring of self battery voltage with analog input
+ *  Add a backup and turn routine to navigate house
  *  Add a rubber band launcher: http://www.instructables.com/id/Rubber-Band-Gun-Using-an-Arduino/
  *  Add police Lights / reverse lights for the bus
  *  Allow control of lights from the remote
  *  Add control via wifi / webpage (maybe using raspberry pi?)
- *  Make wiring more solid (create a whitewire board for relays and power supply)
  *  Get some unit tests
  *  
  *  Expected time for pings to run: 
 */
 
-#include "NewTone.h"
+//#include "NewTone.h"  //todo: fix conflict with Servo.h
 #include "IRremote.h"
 #include "SR04.h"
+#include "Servo.h"
 
 
 /////////////////////////////
@@ -38,13 +37,16 @@
 ////////////// Desired State //////////////
 
 struct {
-  int velocity = 0;        // mm/s
-                           // If set to zero, go forever.
-  bool beeper_on = false;  // true = on
+  int velocity = 0;          // mm/s
+                             // If set to zero, go forever.
+  bool beeper_on = false;    // true = on
+  int steering_position = 0; // % of full steer.  -100% to 100%
+  
   void dump()
   {
     Serial.print("velocity:  "); Serial.println(velocity);
     Serial.print("beeper_on: "); Serial.println(beeper_on);
+    Serial.print("steering_position: "); Serial.println(steering_position);
   }
 } desired;
 
@@ -70,6 +72,13 @@ struct {
   };
 } measured;
 
+
+////////////// Servo Definitions //////////////
+Servo steering_servo;  
+#define SERVO_CENTER_POSITION 80  //must be >= 0 and <= 180
+#define SERVO_FULL_LEFT_POSITION 30 //must be >= 0 and <= 180
+#define SERVO_CONTROL_PIN 3
+
 ////////////// Ultrasonics Definitions //////////////
 
 // Front Ultrasonic Receiver
@@ -91,11 +100,12 @@ SR04 rear_ultrasonic = SR04(REAR_ECHO_PIN, REAR_TRIG_PIN);
 #define H_BRIDGE_PIN2    11            // Orange - Relay board IN2
 
 ////////////// IR Receiver Control Definitions //////////////
-#define IR_RECEIVER_PIN  2     // Signal Pin of IR receiver to Arduino Digital Pin 11
+#define IR_RECEIVER_PIN  2     // Signal Pin of IR receiver to Arduino Digital Pin
 IRrecv irrecv(IR_RECEIVER_PIN);       // create instance of 'irrecv'
 
 ////////////// Buzzer Definitions //////////////
 // Buzzer tones
+
 #define DO  262  // C
 #define RE  294  // D
 #define ME  330  // E
@@ -165,12 +175,14 @@ void apply_backup_beep_io(bool beeper_on)
 
     last_xition_millis = millis();
   }
- 
+ /*
+  * todo: fix conflict with tone and servo - not enough timing resources?
   // Apply the correct IO
   if(beeper_on && beep_on)
     NewTone(BUZZER_PIN, BUZZER_TONE);  // Turn on backup beeper
   else
     noNewTone(BUZZER_PIN);    // Turn off backup beeper
+    */
 }
 
 /*
@@ -192,6 +204,34 @@ void stop()
 void go()
 {
   digitalWrite(MOTOR_POWER_PIN, LOW);            //motor power on
+}
+
+/*
+ * increment_steering()
+ * 
+ * Adjust the steering percentage by this value.
+ * 
+ */
+
+void increment_steering(int delta)
+{
+  int new_steer = desired.steering_position + delta;
+  if( (new_steer <= 100) &&
+      (new_steer >= -100) )
+  {
+    desired.steering_position = new_steer;
+  }
+  else
+  {
+    return; //do not allow steering beyond +/- 100%
+  }
+
+  // Translate steering command to percentage of left and right
+  // left is negative, right is positive
+
+  int servo_multiplier = ( SERVO_CENTER_POSITION - SERVO_FULL_LEFT_POSITION );
+  int servo_setting = (SERVO_CENTER_POSITION + desired.steering_position * servo_multiplier / 100) ;
+  steering_servo.write(servo_setting);
 }
 
 /* 
@@ -265,8 +305,12 @@ void translateIR(decode_results results) // takes action based on IR code receiv
   case 0xFF22DD: Serial.println("PAUSE");
                   set_desired_velocity(0);
                   break;
-  case 0xFF02FD: Serial.println("FAST BACK");    break;
-  case 0xFFC23D: Serial.println("FAST FORWARD");   break;
+  case 0xFF02FD: Serial.println("FAST BACK");
+                  increment_steering(-50);
+                  break;
+  case 0xFFC23D: Serial.println("FAST FORWARD");
+                  increment_steering(50);
+                  break;
   case 0xFFE01F: Serial.println("EQ");    break;
   case 0xFFA857: Serial.println("VOL-");
                  set_desired_velocity(-1);
@@ -329,6 +373,9 @@ void setup() {
 
   // Init built-in LED
   pinMode(LED_BUILTIN, OUTPUT);
+
+  // Init the servo pin
+  steering_servo.attach(SERVO_CONTROL_PIN);
 
   Serial.println("Setup Complete.");
 
